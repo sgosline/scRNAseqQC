@@ -1,19 +1,14 @@
-FROM ubuntu:18.04
+FROM amancevice/pandas
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y \
-       python3 \
-       python3-setuptools \
-       python3-pip \
-       python3-pandas 
-
+    && apt-get install --no-install-recommends -y
 
 RUN pip3 install --upgrade pip
 
 RUN pip3 install numpy \
     matplotlib \
     sklearn \
-    umap \
+    umap-learn \
     pydpc \
     scipy
 

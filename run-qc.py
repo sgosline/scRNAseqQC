@@ -23,9 +23,9 @@ def read_file(fname):
 
 
 
-def dimReduce(test_lib,quantile=30):
+def dimReduce(test_lib,quantile=30,outputprefix='test'):
     #first find inflection point
-    inflections=test_lib.find_inflection()
+    inflections=test_lib.find_inflection(output_prefix=outputprefix)
 
     ##select for quantile-- is this a dictionary?
     test_dr=dimension_reduction(test_lib,inflections[quantile])
