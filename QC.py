@@ -110,7 +110,7 @@ class gate_visualize(object):
             self.DPC = Cluster(dr.astype('float64'))
         self.DPC.assign(x_cutoff,y_cutoff)
 
-    def plotDPC(self):
+    def plotDPC(self,output_prefix=''):
         fig = plt.figure(figsize=(30,10))
         ax1 = fig.add_subplot(131)
         ax2 = fig.add_subplot(132)
@@ -131,9 +131,11 @@ class gate_visualize(object):
         ax1.set_title("Density Peak Clusters",size=15,weight="bold")
         ax2.set_title("Library Size (Blue = Low Quality)",size=15,weight="bold")
         ax3.set_title("Ranked Library Sizes (Blue = Low Quality)",size=15,weight="bold")
+        if(output_prefix!=''):
+            fig.savefig(output_prefix+'_dpcPlot.png',bbox_inches='tight')
 
 
-    def plotGenes(self,feature_list,embedding = "UMAP"):
+    def plotGenes(self,feature_list,embedding = "UMAP",output_prefix=''):
         self.lib_geneID=pd.Series(self.lib_geneID)
         feature_inds=[]
         gene_overlays=[]
@@ -147,12 +149,16 @@ class gate_visualize(object):
                 plt.subplot(3,3, i+1)
                 plt.scatter(self.UMAP[:,0],self.UMAP[:,1],c=gene_overlays[i],cmap='hot',s=20)
                 plt.title(feature_list[i],size=15,weight="bold")
+            if(output_prefix!=''):
+                fig.save(output_prefix+'_UMAP.png')
         if(embedding == "TSNE"):
             fig = plt.figure(figsize=(30,30))
             for i in range(len(gene_overlays)):
                 plt.subplot(3,3, i+1)
                 plt.scatter(self.TSNE[:,0],self.TSNE[:,1],c=gene_overlays[i],cmap='hot',s=20)
                 plt.title(feature_list[i],size=15,weight="bold")
+            if(output_prefix!=''):
+                fig.save(output_prefix+'_TSNE.png')
 
     def manual_gating(self,gate_out):#embedding = "UMAP"
         color=plt.cm.gist_rainbow(np.linspace(0,1,len(self.DPC.clusters)))

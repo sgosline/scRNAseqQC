@@ -36,6 +36,13 @@ def dimReduce(test_lib,quantile=30,outputprefix='test'):
     test_dr.runUMAP() #tSNE is also supported by .runTSNE
     return test_dr
 
+def doGating(test_dr,umapOrTsne='UMAP',density=10,delta=0.5):
+    test_gate = gate_visualize(test_dr)
+    if(umapOrTsne=='UMAP')
+        test_gate.runDPC(test_gate.UMAP,density,delta) #first value = density cutoff, second value = delta/a.u. cutoff
+    else:
+        test_gate.runDPC(test_gate.TSNE,density,delta)
+    return test_gate
 
 
 
