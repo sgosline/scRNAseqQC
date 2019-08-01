@@ -5,7 +5,7 @@ RUN apt-get update \
        python3 \
        python3-setuptools \
        python3-pip \
-       python3-pandas \
+       python3-pandas 
 
 
 RUN pip3 install --upgrade pip
@@ -18,4 +18,4 @@ RUN pip3 install numpy \
     scipy
 
 COPY *.py /usr/local/bin/
-CHMOD 755 /usr/local/bin/run-qc.py
+RUN chmod 755 /usr/local/bin/run-qc.py
