@@ -38,7 +38,7 @@ def dimReduce(test_lib,quantile=30,outputprefix='test'):
 
 def doGating(test_dr,umapOrTsne='UMAP',density=10,delta=0.5):
     test_gate = gate_visualize(test_dr)
-    if(umapOrTsne=='UMAP')
+    if(umapOrTsne=='UMAP'):
         test_gate.runDPC(test_gate.UMAP,density,delta) #first value = density cutoff, second value = delta/a.u. cutoff
     else:
         test_gate.runDPC(test_gate.TSNE,density,delta)
