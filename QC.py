@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 import matplotlib.pylab as plt
+from scipy import stats
 
 def find_inflection(ann_data, inflection_percentiles = [0,15,30,100]):
     ann_data_cumsum = np.cumsum(ann_data.obs['n_counts'])
@@ -33,3 +34,34 @@ def reorder_AnnData(AnnData, descending = True):
 
 def arcsinh_transform(AnnData, cofactor = 1000):
     AnnData.X = np.arcsinh(AnnData.X*cofactor,dtype='float')
+
+def cluster_summary_stats(AnnData,raw=False):
+    cluster_means = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    cluster_medians = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    cluster_stdev = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    if(raw == True):
+        for cluster in range(len(np.unique(AnnData.obs['louvain']))):
+            cluster_means[cluster]=np.array(np.mean(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+            cluster_medians[cluster]=np.array(np.median(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+            cluster_stdev[cluster]=np.array(np.std(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+    elif(raw == False):    
+        for cluster in range(len(np.unique(AnnData.obs['louvain']))):
+            cluster_means[cluster]=np.array(np.mean(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+            cluster_medians[cluster]=np.array(np.median(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+            cluster_stdev[cluster]=np.array(np.std(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+    AnnData.layers['Cluster_Medians'] = np.array(cluster_medians[AnnData.obs['louvain'].astype(int)])
+    AnnData.layers['Cluster_Means'] = cluster_means[AnnData.obs['louvain'].astype(int)]
+    AnnData.layers['Cluster_Stdevs'] = cluster_stdev[AnnData.obs['louvain'].astype(int)]
+
+def cluster_wilcoxon_rank_sum(AnnData,feature_list,alternative='greater'):
+    cluster_list = AnnData.obs['louvain']
+    p_values = np.zeros((len(np.unique(cluster_list)),len(feature_list)))
+    for cluster in range(len(np.unique(cluster_list))):
+        for feature in range(len(feature_list)):
+            p_values[cluster,feature]=stats.mannwhitneyu(AnnData[cluster_list.isin([str(cluster)])].obs_vector(feature_list[feature]),AnnData.obs_vector(feature_list[feature]),alternative='greater',use_continuity=True)[1]
+    AnnData.uns['Cluster_p_values'] = pd.DataFrame(p_values,np.arange(len(np.unique(cluster_list))),feature_list)
+
+def cluster_p_threshold(AnnData,threshold = 0.05):
+    for columns in AnnData.uns['Cluster_p_values']:
+        AnnData.obs[columns+'_threshold'] = (AnnData.uns['Cluster_p_values']<threshold)[columns][AnnData.obs['louvain'].astype(int)].astype(int).values
+        AnnData.obs[columns+'_enrichment'] = (AnnData.uns['Cluster_p_values'])[columns][AnnData.obs['louvain'].astype(int)].values
