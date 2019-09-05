@@ -1,181 +1,74 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-import umap
-from pydpc import Cluster
-import scipy.io
-import scipy
-from sklearn.preprocessing import normalize
-import sys
+import scanpy as sc
+import matplotlib.pylab as plt
+from scipy import stats
 
-class library_data(object):
+def find_inflection(ann_data, inflection_percentiles = [0,15,30,100]):
+    ann_data_cumsum = np.cumsum(ann_data.obs['n_counts'])
+    x_vals=np.arange(0,ann_data.obs.shape[0])
+    secant_coef=ann_data_cumsum[ann_data.obs.shape[0]-1]/ann_data.obs.shape[0]
+    secant_line=secant_coef*x_vals
+    secant_dist=abs(ann_data_cumsum-secant_line)
+    inflection_percentiles_inds = np.percentile(x_vals,inflection_percentiles).astype(int)
+    inflection_points = secant_dist.argsort()[::-1]
+    percentile_points = inflection_points[inflection_percentiles_inds]
+    color=plt.cm.tab10(np.linspace(0,1,ann_data.obs.shape[0]))
+    plt.figure(figsize=(20,10))
+    plt.plot(np.array(ann_data_cumsum), label="Cumulative Sum")
+    #plt.plot(np.array(secant_line), label="Secant Line")
+    plt.plot(np.array(secant_dist), label="Secant Distance")
+    for percentile in percentile_points:
+        plt.axvline(x=percentile,ymin=0,c=color[percentile],linestyle='--',linewidth=2,label="Inflection point {}".format(percentile))
+    plt.legend()
+    #save to file
+    if(output_prefix!=''):
+        plt.savefig(output_prefix+'_inflectionCheck.png',bbox_inches='tight')
+    else:
+        plt.show()
+    print("Inflection point at {} for {} percentiles of greatest secant distances".format(percentile_points,inflection_percentiles))
+    #SJCG: added the ability to return a dictionary of points
+    return(dict(zip(inflection_percentiles, percentile_points)))
+    
+def reorder_AnnData(AnnData, descending = True):
+    AnnData.obs['n_counts'] = AnnData.X.sum(axis=1)
+    if(descending==True):
+        new_order = np.argsort(AnnData.obs['n_counts'])[::-1]
+    elif(descending==False):
+        new_order = np.argsort(AnnData.obs['n_counts'])[:]
+    AnnData.X = AnnData.X[new_order,:].copy()
+    AnnData.obs = AnnData.obs.iloc[new_order].copy()
 
-    def __init__(self,lib_counts = None,lib_cellID = None,lib_geneID = None,sort = True,subset = []):
-        self.lib_counts = scipy.sparse.csr_matrix(lib_counts) #must be count matrix, integers in some array format
-        self.lib_size = np.array(self.lib_counts.sum(axis = 1)).flatten()
-        self.lib_rank = self.lib_size.argsort(axis = 0)[::-1] #greatest to least
-        self.lib_geneID = lib_geneID #must be 1 dimensional numpy string array
-        if (sort): #rearrange cellIDs and count data by sorted ranking, least to greatest
-            self.lib_counts = self.lib_counts[self.lib_rank] #sorted
-            self.lib_size = self.lib_size[self.lib_rank]
-            self.lib_cellID = lib_cellID[self.lib_rank]
-        else:
-            self.lib_cellID = lib_cellID
-        self.cell_number = self.lib_counts.shape[0]
-        self.gene_number = self.lib_counts.shape[1]
+def arcsinh_transform(AnnData, cofactor = 1000):
+    AnnData.X = np.arcsinh(AnnData.X*cofactor,dtype='float')
 
-    def find_inflection(self,inflection_percentiles = [0,15,30,100], output_prefix=''):
-        lib_cumsum=np.cumsum(self.lib_size)
-        x_vals=np.arange(0,self.cell_number)
-        secant_coef=lib_cumsum[self.cell_number-1]/self.cell_number
-        secant_line=secant_coef*x_vals
-        secant_dist=abs(lib_cumsum-secant_line)
-        inflection_percentiles_inds = np.percentile(x_vals,inflection_percentiles).astype(int)
-        inflection_points = secant_dist.argsort()[::-1]
-        percentile_points = inflection_points[inflection_percentiles_inds]
-        color=plt.cm.tab10(np.linspace(0,1,self.cell_number))
-        #commented out so it doesn't show by default
-        #plt.figure(figsize=(20,10))
-        plt.plot(np.array(lib_cumsum), label="Cumulative Sum")
-        #plt.plot(np.array(secant_line), label="Secant Line")
-        plt.plot(np.array(secant_dist), label="Secant Distance")
-        for percentile in percentile_points:
-            plt.axvline(x=percentile,ymin=0,c=color[percentile],linestyle='--',linewidth=2,label="Inflection point {}".format(percentile))
-        plt.legend()
-        #save to file
-        if(output_prefix!=''):
-            plt.savefig(output_prefix+'_inflectionCheck.png',bbox_inches='tight')
-        else:
-            plt.show()
-        print("Inflection point at {} for {} percentiles of greatest secant distances".format(percentile_points,inflection_percentiles))
-        #SJCG: added the ability to return a dictionary of points
-        return dict(zip(inflection_percentiles, percentile_points))
+def cluster_summary_stats(AnnData,raw=False):
+    cluster_means = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    cluster_medians = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    cluster_stdev = np.zeros((len(np.unique(AnnData.obs['louvain'])),AnnData.n_vars))
+    if(raw == True):
+        for cluster in range(len(np.unique(AnnData.obs['louvain']))):
+            cluster_means[cluster]=np.array(np.mean(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+            cluster_medians[cluster]=np.array(np.median(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+            cluster_stdev[cluster]=np.array(np.std(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].X,axis = 0))
+    elif(raw == False):    
+        for cluster in range(len(np.unique(AnnData.obs['louvain']))):
+            cluster_means[cluster]=np.array(np.mean(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+            cluster_medians[cluster]=np.array(np.median(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+            cluster_stdev[cluster]=np.array(np.std(AnnData[AnnData.obs['louvain'].isin([str(cluster)])].raw.X,axis = 0))
+    AnnData.layers['Cluster_Medians'] = np.array(cluster_medians[AnnData.obs['louvain'].astype(int)])
+    AnnData.layers['Cluster_Means'] = cluster_means[AnnData.obs['louvain'].astype(int)]
+    AnnData.layers['Cluster_Stdevs'] = cluster_stdev[AnnData.obs['louvain'].astype(int)]
 
-class dimension_reduction(object):
+def cluster_wilcoxon_rank_sum(AnnData,feature_list,alternative='greater'):
+    cluster_list = AnnData.obs['louvain']
+    p_values = np.zeros((len(np.unique(cluster_list)),len(feature_list)))
+    for cluster in range(len(np.unique(cluster_list))):
+        for feature in range(len(feature_list)):
+            p_values[cluster,feature]=stats.mannwhitneyu(AnnData[cluster_list.isin([str(cluster)])].obs_vector(feature_list[feature]),AnnData.obs_vector(feature_list[feature]),alternative='greater',use_continuity=True)[1]
+    AnnData.uns['Cluster_p_values'] = pd.DataFrame(p_values,np.arange(len(np.unique(cluster_list))),feature_list)
 
-    def __init__(self,lib_data_in,inflection = 0,seed = 42,subset = False):
-        self.lib_values = lib_data_in.lib_counts[:inflection,:]
-        self.lib_size = lib_data_in.lib_size[:inflection]
-        self.lib_rank = self.lib_size.argsort(axis = 0)
-        self.lib_geneID = lib_data_in.lib_geneID
-        self.lib_cellID = lib_data_in.lib_cellID
-        self.cell_number = lib_data_in.cell_number
-        self.seed = seed
-        np.random.seed(self.seed)
-        self.UMAP = 0
-        self.TSNE = 0
-
-    def lib_size_normalize(self):
-        self.lib_values = normalize(self.lib_values,norm='l1',axis=1)
-
-    def arcsinh_transform(self,cofactor=1000):
-        self.lib_values = np.arcsinh(self.lib_values*cofactor)
-
-    def log1p_transform(self):
-        self.lib_values = np.log1p(self.lib_values)
-
-    def runPCA(self,n_pcs = 100):
-        print("Running PCA for {} components".format(n_pcs))
-        self.lib_values_array = self.lib_values.toarray()
-        _pca = PCA(n_components = n_pcs)
-        self.PCA = _pca.fit(self.lib_values_array).transform(self.lib_values_array)
-
-    def runUMAP(self,neighborhood_percent=.005,n_components=2):
-        n_neighbors_ = int(self.cell_number*neighborhood_percent)
-        print("Running UMAP with {} neighbors".format(n_neighbors_))
-        self.UMAP = umap.UMAP(n_components=n_components,n_neighbors = n_neighbors_, min_dist = 0.1, metric = 'correlation').fit_transform(self.PCA)
-
-    def runTSNE(self,neighborhood_percent=.005,n_components=2):
-        n_neighbors_ = int(self.cell_number*neighborhood_percent)
-        print("Running tSNE with {} perplexity".format(n_neighbors_))
-        self.TSNE = TSNE(n_components=n_components,perplexity=n_neighbors_,n_iter=5000,metric='euclidean',init='pca',random_state=self.seed).fit_transform(self.PCA)
-
-class gate_visualize(object):
-
-    def __init__(self,dr_in,subset = False):
-        self.lib_values = dr_in.lib_values
-        self.lib_size = dr_in.lib_size
-        self.lib_rank = dr_in.lib_rank
-        self.PCA = dr_in.PCA
-        self.UMAP = dr_in.UMAP
-        self.TSNE = dr_in.TSNE
-        self.seed = dr_in.seed
-        self.lib_geneID = dr_in.lib_geneID
-        self.DPC = None
-
-    def runDPC(self,dr,x_cutoff,y_cutoff,force_rerun = False):
-        if ((self.DPC == None) or (force_rerun == True)):
-            self.DPC = Cluster(dr.astype('float64'))
-        self.DPC.assign(x_cutoff,y_cutoff)
-
-    def plotDPC(self,output_prefix=''):
-        fig = plt.figure(figsize=(30,10))
-        ax1 = fig.add_subplot(131)
-        ax2 = fig.add_subplot(132)
-        ax3 = fig.add_subplot(133)
-
-        ax1.scatter(self.UMAP[:,0],self.UMAP[:,1],c=self.DPC.membership,cmap='gist_rainbow',s=10)
-        ax2.scatter(self.UMAP[:,0],self.UMAP[:,1],c=self.lib_size,cmap='seismic',s=10)
-        ax3.scatter(self.UMAP[:,0],self.UMAP[:,1],c=self.lib_rank,cmap='seismic',s=10)
-        #plt.colorbar(p,ax=ax3)
-        color=plt.cm.gist_rainbow(np.linspace(0,1,len(self.DPC.clusters)))
-
-        for i in range(len(self.DPC.clusters)):
-            x = self.UMAP[self.DPC.clusters[i],0]
-            y = self.UMAP[self.DPC.clusters[i],1]
-            text = ax1.text(x, y, i, fontsize=15,color='black',horizontalalignment='center',verticalalignment='center',weight='bold',
-                            bbox=dict(facecolor='white', edgecolor='black', boxstyle='Circle',pad=0.1,alpha=.5))
-
-        ax1.set_title("Density Peak Clusters",size=15,weight="bold")
-        ax2.set_title("Library Size (Blue = Low Quality)",size=15,weight="bold")
-        ax3.set_title("Ranked Library Sizes (Blue = Low Quality)",size=15,weight="bold")
-        if(output_prefix!=''):
-            fig.savefig(output_prefix+'_dpcPlot.png',bbox_inches='tight')
-
-
-    def plotGenes(self,feature_list,embedding = "UMAP",output_prefix=''):
-        self.lib_geneID=pd.Series(self.lib_geneID)
-        feature_inds=[]
-        gene_overlays=[]
-        for features in feature_list:
-            feature_inds.append(np.where(self.lib_geneID.str.contains(features))[0])
-        for features in feature_inds:
-            gene_overlays.append(np.array(np.sum(self.lib_values[:,features],axis=1)).flatten())
-        if(embedding == "UMAP"):
-            fig = plt.figure(figsize=(30,30))
-            for i in range(len(gene_overlays)):
-                plt.subplot(3,3, i+1)
-                plt.scatter(self.UMAP[:,0],self.UMAP[:,1],c=gene_overlays[i],cmap='hot',s=20)
-                plt.title(feature_list[i],size=15,weight="bold")
-            if(output_prefix!=''):
-                fig.save(output_prefix+'_UMAP.png')
-        if(embedding == "TSNE"):
-            fig = plt.figure(figsize=(30,30))
-            for i in range(len(gene_overlays)):
-                plt.subplot(3,3, i+1)
-                plt.scatter(self.TSNE[:,0],self.TSNE[:,1],c=gene_overlays[i],cmap='hot',s=20)
-                plt.title(feature_list[i],size=15,weight="bold")
-            if(output_prefix!=''):
-                fig.save(output_prefix+'_TSNE.png')
-
-    def manual_gating(self,gate_out):#embedding = "UMAP"
-        color=plt.cm.gist_rainbow(np.linspace(0,1,len(self.DPC.clusters)))
-        clust_inds = np.delete(np.arange(0,len(self.DPC.membership),1),gate_out) # clusters that represent cells to keep
-        cluster_ids = np.delete(np.arange(0,len(self.DPC.clusters),1),gate_out)
-        clust_mask = np.isin(self.DPC.membership, clust_inds)
-        gate_out_inds=np.where(clust_mask == False)
-        gated_embedding = self.UMAP[clust_mask]
-
-        fig = plt.figure(figsize=(10,10))
-        ax1 = fig.add_subplot(111)
-        ax1.scatter(gated_embedding[:,0],gated_embedding[:,1],alpha=1,s=20,c = self.DPC.membership[clust_mask],cmap = 'gist_rainbow')
-        ax1.scatter(self.UMAP[gate_out_inds,0],self.UMAP[gate_out_inds,1],alpha=0.5,s=20,c = 'gray')
-
-        for i in range(len(self.DPC.clusters[cluster_ids])):
-            x = self.UMAP[self.DPC.clusters[cluster_ids][i],0]
-            y = self.UMAP[self.DPC.clusters[cluster_ids][i],1]
-            text = ax1.text(x, y, i, fontsize=15,color='black',horizontalalignment='center',verticalalignment='center',weight='bold',
-                            bbox=dict(facecolor='white', edgecolor='black', boxstyle='Circle',pad=0.1,alpha=.5))
-        return (np.where(clust_mask)[0])
+def cluster_p_threshold(AnnData,threshold = 0.05):
+    for columns in AnnData.uns['Cluster_p_values']:
+        AnnData.obs[columns+'_threshold'] = (AnnData.uns['Cluster_p_values']<threshold)[columns][AnnData.obs['louvain'].astype(int)].astype(int).values
+        AnnData.obs[columns+'_enrichment'] = (AnnData.uns['Cluster_p_values'])[columns][AnnData.obs['louvain'].astype(int)].values
