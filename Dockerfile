@@ -10,7 +10,8 @@ RUN pip3 install numpy \
     sklearn \
     umap-learn \
     pydpc \
-    scipy
+    scipy \
+    scanpy
 
 COPY *.py /usr/local/bin/
 RUN chmod 755 /usr/local/bin/run-qc.py
